@@ -9,6 +9,8 @@
 #import "WarpedTextView.h"
 #import <CoreText/CoreText.h>
 
+#define NUM_SUBDIVISIONS 100
+
 typedef struct {
     CGFloat A;
     CGFloat B;
@@ -58,14 +60,15 @@ CGFloat distance(CGPoint p1, CGPoint p2)
 CGFloat* arcLengths(CurveCoefficients coeffs)
 {
     CGPoint prevPoint = evalBezier(coeffs, 0);
-    int numSubdivisions = 100;
+    int numSubdivisions = NUM_SUBDIVISIONS;
     int numPoints = numSubdivisions + 1;
     CGFloat *lengths = malloc(sizeof(CGFloat) * numPoints);
     CGFloat sum = 0;
+    lengths[0] = 0.0;
     
     for (int i = 1; i < numPoints; i++)
     {
-        CGPoint p = evalBezier(coeffs, i / (CGFloat)numPoints);
+        CGPoint p = evalBezier(coeffs, i / (CGFloat)numSubdivisions);
         CGFloat dist = distance(prevPoint, p);
         sum += dist;
         lengths[i] = sum;
@@ -77,15 +80,22 @@ CGFloat* arcLengths(CurveCoefficients coeffs)
 
 CGFloat TForU(CGFloat u, CGFloat *arcLengths)
 {
-    CGFloat targetArcLength = u * arcLengths[99];
+    CGFloat targetArcLength = u * arcLengths[NUM_SUBDIVISIONS];
     int i;
-    for (i = 99; i > 0; i--) {
+    for (i = NUM_SUBDIVISIONS; i > 0; i--) {
         if (arcLengths[i] < targetArcLength)
             break;
     }
     
     if (arcLengths[i] == targetArcLength) {
-        return i / 99.0;
+        return i / (CGFloat)NUM_SUBDIVISIONS;
+    } else {
+        CGFloat lengthBefore = arcLengths[i];
+        CGFloat lengthAfter = arcLengths[i+1];
+        CGFloat segmentLength = lengthAfter - lengthBefore;
+        
+        CGFloat segmentFraction = (targetArcLength - lengthBefore) / segmentLength;
+        return (i + segmentFraction) / (CGFloat)NUM_SUBDIVISIONS;
     }
 }
 
@@ -95,7 +105,7 @@ CGPoint warpPoint(CGPoint pt, CurveCoefficients coeffs, CGFloat *arcLengths)
     CGFloat textY = pt.y;
     
     // Normalize the x coord into value between 0 and 1.
-    CGFloat u = textX / arcLengths[99];
+    CGFloat u = textX / arcLengths[NUM_SUBDIVISIONS];
     CGFloat t = TForU(u, arcLengths);
     
     // Calculate the spline point at t
@@ -130,44 +140,25 @@ void _warpTextApplierFunc(void *info, const CGPathElement *element)
     
     switch (element->type) {
         case kCGPathElementMoveToPoint:
-            NSLog(@"kCGPathElementMoveToPoint");
             p1 = warpPoint(element->points[0], ctx->coeffs, ctx->arcLengths);
-            NSLog(@"Point 1       : %@", NSStringFromCGPoint(element->points[0]));
-            NSLog(@"Warped Point 1: %@", NSStringFromCGPoint(p1));
             CGPathMoveToPoint(ctx->warpedPath, NULL, p1.x, p1.y);
             break;
         case kCGPathElementAddLineToPoint:
-            NSLog(@"kCGPathElementAddLineToPoint");
             p1 = warpPoint(element->points[0], ctx->coeffs, ctx->arcLengths);
-            NSLog(@"Point 1       : %@", NSStringFromCGPoint(element->points[0]));
-            NSLog(@"Warped Point 1: %@", NSStringFromCGPoint(p1));
             CGPathAddLineToPoint(ctx->warpedPath, NULL, p1.x, p1.y);
             break;
         case kCGPathElementAddQuadCurveToPoint:
-            NSLog(@"kCGPathElementAddQuadCurveToPoint");
             p1 = warpPoint(element->points[0], ctx->coeffs, ctx->arcLengths);
             p2 = warpPoint(element->points[1], ctx->coeffs, ctx->arcLengths);
-            NSLog(@"Point 1       : %@", NSStringFromCGPoint(element->points[0]));
-            NSLog(@"Point 2       : %@", NSStringFromCGPoint(element->points[1]));
-            NSLog(@"Warped Point 1: %@", NSStringFromCGPoint(p1));
-            NSLog(@"Warped Point 2: %@", NSStringFromCGPoint(p2));
             CGPathAddQuadCurveToPoint(ctx->warpedPath, NULL, p1.x, p1.y, p2.x, p2.y);
             break;
         case kCGPathElementAddCurveToPoint:
-            NSLog(@"kCGPathElementAddCurveToPoint");
             p1 = warpPoint(element->points[0], ctx->coeffs, ctx->arcLengths);
             p2 = warpPoint(element->points[1], ctx->coeffs, ctx->arcLengths);
             p3 = warpPoint(element->points[2], ctx->coeffs, ctx->arcLengths);
-            NSLog(@"Point 1: %@", NSStringFromCGPoint(element->points[0]));
-            NSLog(@"Point 2: %@", NSStringFromCGPoint(element->points[1]));
-            NSLog(@"Point 3: %@", NSStringFromCGPoint(element->points[2]));
-            NSLog(@"Warped Point 1: %@", NSStringFromCGPoint(p1));
-            NSLog(@"Warped Point 2: %@", NSStringFromCGPoint(p2));
-            NSLog(@"Warped Point 3: %@", NSStringFromCGPoint(p3));
             CGPathAddCurveToPoint(ctx->warpedPath, NULL, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
             break;
         case kCGPathElementCloseSubpath:
-            NSLog(@"kCGPathElementCloseSubpath");
             CGPathCloseSubpath(ctx->warpedPath);
             break;
         default:
@@ -182,11 +173,11 @@ void _warpTextApplierFunc(void *info, const CGPathElement *element)
 {
     [super drawRect:rect];
     CGContextRef context = UIGraphicsGetCurrentContext();
-    NSAttributedString *attString = [self attributedStringForNSString:@"Washa Ufitzi Drive Me To Firenze"];
+    NSAttributedString *attString = [self attributedStringForNSString:@"The quick brown fox jumps over the lazy dog."];
 
     CGMutablePathRef path = CGPathCreateMutable();
     CGPathMoveToPoint(path, NULL, 0, 0);
-    CGPathAddCurveToPoint(path, NULL, 20, 50, 300, -50, 320, 0);
+    CGPathAddCurveToPoint(path, NULL, 250, -100, 50, 100, 320, 0);
     
     CGContextSaveGState(context);
     CGContextConcatCTM(context, CGAffineTransformMakeTranslation(0, 200));
@@ -201,7 +192,7 @@ void _warpTextApplierFunc(void *info, const CGPathElement *element)
 //    CGContextScaleCTM(context, 1.0, -1.0);
     
     CGPathRef letters = [self pathForAttributedString:attString];
-    CurveCoefficients coeffs = getCoefficientsForCurve(0, 0, 20, 50, 300, -50, 320, 0);
+    CurveCoefficients coeffs = getCoefficientsForCurve(0, 0, 250, -100, 50, 100, 320, 0);
     CGRect textBounds = CGPathGetPathBoundingBox(letters);
     CGMutablePathRef warpedLetters = CGPathCreateMutable();
     WarpContext *ctx = malloc(sizeof(WarpContext));

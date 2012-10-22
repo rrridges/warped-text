@@ -23,6 +23,8 @@
 		C947FE321631C72700271585 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C947FE0D1631C72700271585 /* Foundation.framework */; };
 		C947FE3A1631C72700271585 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = C947FE381631C72700271585 /* InfoPlist.strings */; };
 		C947FE3D1631C72700271585 /* WarpedTextTests.m in Sources */ = {isa = PBXBuildFile; fileRef = C947FE3C1631C72700271585 /* WarpedTextTests.m */; };
+		C947FE481631C76D00271585 /* WarpedTextView.m in Sources */ = {isa = PBXBuildFile; fileRef = C947FE471631C76D00271585 /* WarpedTextView.m */; };
+		C947FE4A1631CF0500271585 /* CoreText.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C947FE491631CF0500271585 /* CoreText.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -58,6 +60,9 @@
 		C947FE391631C72700271585 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		C947FE3B1631C72700271585 /* WarpedTextTests.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WarpedTextTests.h; sourceTree = "<group>"; };
 		C947FE3C1631C72700271585 /* WarpedTextTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WarpedTextTests.m; sourceTree = "<group>"; };
+		C947FE461631C76D00271585 /* WarpedTextView.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WarpedTextView.h; sourceTree = "<group>"; };
+		C947FE471631C76D00271585 /* WarpedTextView.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = WarpedTextView.m; sourceTree = "<group>"; };
+		C947FE491631CF0500271585 /* CoreText.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreText.framework; path = System/Library/Frameworks/CoreText.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -65,6 +70,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C947FE4A1631CF0500271585 /* CoreText.framework in Frameworks */,
 				C947FE0C1631C72700271585 /* UIKit.framework in Frameworks */,
 				C947FE0E1631C72700271585 /* Foundation.framework in Frameworks */,
 				C947FE101631C72700271585 /* CoreGraphics.framework in Frameworks */,
@@ -87,6 +93,7 @@
 		C947FDFC1631C72700271585 = {
 			isa = PBXGroup;
 			children = (
+				C947FE491631CF0500271585 /* CoreText.framework */,
 				C947FE111631C72700271585 /* WarpedText */,
 				C947FE351631C72700271585 /* WarpedTextTests */,
 				C947FE0A1631C72700271585 /* Frameworks */,
@@ -123,6 +130,8 @@
 				C947FE261631C72700271585 /* ViewController.h */,
 				C947FE271631C72700271585 /* ViewController.m */,
 				C947FE121631C72700271585 /* Supporting Files */,
+				C947FE461631C76D00271585 /* WarpedTextView.h */,
+				C947FE471631C76D00271585 /* WarpedTextView.m */,
 			);
 			path = WarpedText;
 			sourceTree = "<group>";
@@ -273,6 +282,7 @@
 				C947FE181631C72700271585 /* main.m in Sources */,
 				C947FE1C1631C72700271585 /* AppDelegate.m in Sources */,
 				C947FE281631C72700271585 /* ViewController.m in Sources */,
+				C947FE481631C76D00271585 /* WarpedTextView.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

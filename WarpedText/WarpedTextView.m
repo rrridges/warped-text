@@ -166,53 +166,71 @@ void _warpTextApplierFunc(void *info, const CGPathElement *element)
     }
 }
 
-
-// Only override drawRect: if you perform custom drawing.
-// An empty implementation adversely affects performance during animation.
 - (void)drawRect:(CGRect)rect
 {
     [super drawRect:rect];
+    
     CGContextRef context = UIGraphicsGetCurrentContext();
-    NSAttributedString *attString = [self attributedStringForNSString:@"The quick brown fox jumps over the lazy dog."];
-
+	
+    // Get an attributed string to draw.
+    CTFontRef fontRef = CTFontCreateWithName((CFStringRef)@"Futura", 16.0f, NULL);
+    NSAttributedString *attString = [self attributedStringForNSString:@"The quick brown fox jumps over the dog." withFont:fontRef];
+    
+    // Get a path to draw along.
     CGMutablePathRef path = CGPathCreateMutable();
     CGPathMoveToPoint(path, NULL, 0, 0);
     CGPathAddCurveToPoint(path, NULL, 250, -100, 50, 100, 320, 0);
     
-    CGContextSaveGState(context);
-    CGContextConcatCTM(context, CGAffineTransformMakeTranslation(0, 200));
-    CGContextSetRGBStrokeColor(context, 1.0, 0.0, 0.0, 1.0);
-    CGContextBeginPath(context);
-    CGContextAddPath(context, path);
-    CGContextStrokePath(context);
-    CGContextRestoreGState(context);
-    
-    // Flip the coordinate system
-//    CGContextTranslateCTM(context, 0, self.bounds.size.height);
-//    CGContextScaleCTM(context, 1.0, -1.0);
-    
+    // Get a path representing the text
     CGPathRef letters = [self pathForAttributedString:attString];
     CurveCoefficients coeffs = getCoefficientsForCurve(0, 0, 250, -100, 50, 100, 320, 0);
+    
+    // Calculate vertical offset to center.
+    CGFloat ascent = CTFontGetAscent(fontRef);
+    CGFloat descent = CTFontGetDescent(fontRef);
+    CGFloat yOffset =  -(ascent - (ascent + descent) / 2);
+    
+    // Calculate horizontal offset to center.
+    CGFloat *lengths = arcLengths(coeffs);
     CGRect textBounds = CGPathGetPathBoundingBox(letters);
+    CGFloat arcWidth = lengths[NUM_SUBDIVISIONS];
+    CGFloat textWidth = textBounds.size.width;
+    CGFloat xOffset = (arcWidth - textWidth) / 2;
+
+    // Center text vertically and horizontally.
+    CGAffineTransform transform = CGAffineTransformMakeTranslation(xOffset, yOffset);
+    letters = CGPathCreateCopyByTransformingPath(letters, &transform);
+    
+    // Warp the text.
     CGMutablePathRef warpedLetters = CGPathCreateMutable();
     WarpContext *ctx = malloc(sizeof(WarpContext));
     ctx->coeffs = coeffs;
     ctx->textBounds = textBounds;
-    ctx->arcLengths = arcLengths(coeffs);
+    ctx->arcLengths = lengths;
     ctx->warpedPath = warpedLetters;
-    
     CGPathApply(letters, (void *)ctx, _warpTextApplierFunc);
     
+    // Drawing.
     CGContextConcatCTM(context, CGAffineTransformMakeTranslation(0, 200));
+    
+    CGContextSetRGBStrokeColor(context, 1.0, 0.0, 0.0, 1.0);
     CGContextBeginPath(context);
-//    CGContextAddPath(context, letters);
+    CGContextAddPath(context, path);
+    CGContextStrokePath(context);
+
+    CGContextBeginPath(context);
+    CGContextAddPath(context, warpedLetters);
+    CGContextSetRGBStrokeColor(context, 1.0, 1.0, 0.0, 1.0);
+    CGContextSetLineWidth(context, 1.0);
+    CGContextStrokePath(context);
+    CGContextBeginPath(context);
     CGContextAddPath(context, warpedLetters);
     CGContextFillPath(context);
     
     free(ctx);
 }
 
-- (NSAttributedString *) attributedStringForNSString:(NSString *)string
+- (NSAttributedString *) attributedStringForNSString:(NSString *)string withFont:(CTFontRef)fontRef
 {
 	// The line break mode wraps character-by-character
 	uint8_t breakMode = kCTLineBreakByCharWrapping;
@@ -223,9 +241,6 @@ void _warpTextApplierFunc(void *info, const CGPathElement *element)
 	};
 	CTParagraphStyleSetting alignSettings[1] = {wordBreakSetting};
 	CTParagraphStyleRef paraStyle = CTParagraphStyleCreate(alignSettings, 1);
-    
-	// Set the text
-	CTFontRef fontRef = CTFontCreateWithName((CFStringRef)@"Futura", 16.0f, NULL);
     
 	// Create the attributed string
 	NSDictionary *attrDictionary = [NSDictionary dictionaryWithObjectsAndKeys:

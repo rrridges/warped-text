@@ -9,9 +9,13 @@
 #import "WarpedTextView.h"
 #import <CoreText/CoreText.h>
 
-#define NUM_SUBDIVISIONS 100
+typedef enum {
+    WTCurveTypeQuadratic,
+    WTCurveTypeCubic
+} WTCurveType;
 
 typedef struct {
+    WTCurveType curveType;
     CGFloat A;
     CGFloat B;
     CGFloat C;
@@ -20,16 +24,14 @@ typedef struct {
     CGFloat F;
     CGFloat G;
     CGFloat H;
-} CurveCoefficients;
+} WTCurveCoefficients;
 
 typedef struct {
-    CurveCoefficients coeffs;
-    CGRect textBounds;
+    WTCurveCoefficients coeffs;
     CGFloat *arcLengths;
+    int numSamples;
     CGMutablePathRef warpedPath;
-} WarpContext;
-
-
+} WTContext;
 
 @implementation WarpedTextView
 
@@ -42,14 +44,21 @@ typedef struct {
     return self;
 }
 
-CGPoint evalBezier(CurveCoefficients coeffs, CGFloat t)
+CGPoint WTEvalCurve(WTCurveCoefficients coeffs, CGFloat t)
 {
     CGFloat x = coeffs.A * t * t * t + coeffs.B * t * t + coeffs.C * t + coeffs.D;
     CGFloat y = coeffs.E * t * t * t + coeffs.F * t * t + coeffs.G * t + coeffs.H;
     return CGPointMake(x, y);
 }
 
-CGFloat distance(CGPoint p1, CGPoint p2)
+CGPoint WTEvalQuadCurve(WTCurveCoefficients coeffs, CGFloat t)
+{
+    CGFloat x = coeffs.A * t * t + coeffs.B * t + coeffs.C;
+    CGFloat y = coeffs.D * t * t + coeffs.E * t + coeffs.F;
+    return CGPointMake(x, y);
+}
+
+CGFloat WTDistance(CGPoint p1, CGPoint p2)
 {
     CGFloat dx = p2.x - p1.x;
     CGFloat dy = p2.y - p1.y;
@@ -57,59 +66,78 @@ CGFloat distance(CGPoint p1, CGPoint p2)
 }
 
 
-CGFloat* arcLengths(CurveCoefficients coeffs)
+CGPoint* WTSampleCurve(WTCurveCoefficients coeffs, int numSamples)
 {
-    CGPoint prevPoint = evalBezier(coeffs, 0);
-    int numSubdivisions = NUM_SUBDIVISIONS;
-    int numPoints = numSubdivisions + 1;
-    CGFloat *lengths = malloc(sizeof(CGFloat) * numPoints);
-    CGFloat sum = 0;
-    lengths[0] = 0.0;
+    CGPoint *samples = malloc(sizeof(CGPoint) * numSamples);
     
-    for (int i = 1; i < numPoints; i++)
-    {
-        CGPoint p = evalBezier(coeffs, i / (CGFloat)numSubdivisions);
-        CGFloat dist = distance(prevPoint, p);
-        sum += dist;
-        lengths[i] = sum;
-        prevPoint = p;
+    for (int i = 0; i < numSamples; i++) {
+        CGPoint p;
+        CGFloat t = i / (CGFloat)(numSamples - 1);
+        if (coeffs.curveType == WTCurveTypeCubic) {
+            p = WTEvalCurve(coeffs, t);
+        } else if (coeffs.curveType == WTCurveTypeQuadratic) {
+            p = WTEvalQuadCurve(coeffs, t);
+        }
+        samples[i] = p;
     }
     
+    return samples;
+}
+
+CGFloat* WTMeasureCurve(WTCurveCoefficients coeffs, int numSamples)
+{
+    CGPoint *points = WTSampleCurve(coeffs, numSamples);
+    CGFloat *lengths = malloc(sizeof(CGFloat) * (numSamples));
+    CGFloat sum = 0.0;
+    CGPoint prevPoint = points[0];
+    lengths[0] = 0.0;
+    for (int i = 1; i < numSamples; i++) {
+        CGFloat dist = WTDistance(points[i], prevPoint);
+        sum += dist;
+        lengths[i] = sum;
+        prevPoint = points[i];
+        NSLog(@"sum: %g", sum);
+    }
+    
+    free(points);
     return lengths;
 }
 
-CGFloat TForU(CGFloat u, CGFloat *arcLengths)
+CGFloat TForU(CGFloat u, CGFloat *arcLengths, int numSamples)
 {
-    CGFloat targetArcLength = u * arcLengths[NUM_SUBDIVISIONS];
+    CGFloat targetArcLength = u * arcLengths[numSamples - 1];
     int i;
-    for (i = NUM_SUBDIVISIONS; i > 0; i--) {
+    for (i = numSamples - 1; i > 0; i--) {
         if (arcLengths[i] < targetArcLength)
             break;
     }
     
     if (arcLengths[i] == targetArcLength) {
-        return i / (CGFloat)NUM_SUBDIVISIONS;
+        return i / (CGFloat)(numSamples - 1);
     } else {
         CGFloat lengthBefore = arcLengths[i];
-        CGFloat lengthAfter = arcLengths[i+1];
+        CGFloat lengthAfter = arcLengths[i + 1];
         CGFloat segmentLength = lengthAfter - lengthBefore;
         
         CGFloat segmentFraction = (targetArcLength - lengthBefore) / segmentLength;
-        return (i + segmentFraction) / (CGFloat)NUM_SUBDIVISIONS;
+        return (i + segmentFraction) / (CGFloat)(numSamples - 1);
     }
 }
 
-CGPoint warpPoint(CGPoint pt, CurveCoefficients coeffs, CGFloat *arcLengths)
+CGPoint WTTransformPointToCurve(CGPoint pt, WTCurveCoefficients coeffs, CGFloat *arcLengths, int numSamples)
 {
     CGFloat textX = pt.x;
     CGFloat textY = pt.y;
     
     // Normalize the x coord into value between 0 and 1.
-    CGFloat u = textX / arcLengths[NUM_SUBDIVISIONS];
-    CGFloat t = TForU(u, arcLengths);
+    CGFloat u = textX / arcLengths[numSamples - 1];
+    CGFloat t = TForU(u, arcLengths, numSamples);
+    
+    NSLog(@"u: %g", u);
+    NSLog(@"t: %g", t);
     
     // Calculate the spline point at t
-    CGPoint s = evalBezier(coeffs, t);
+    CGPoint s = WTEvalCurve(coeffs, t);
     
     // Calculate the tangent vector at (s.x, s.y)
     CGFloat tx = 3 * coeffs.A * t * t + 2 * coeffs.B * t + coeffs.C;
@@ -131,31 +159,97 @@ CGPoint warpPoint(CGPoint pt, CurveCoefficients coeffs, CGFloat *arcLengths)
     return CGPointMake(px + s.x, py + s.y);
 }
 
-
-void _warpTextApplierFunc(void *info, const CGPathElement *element)
+CGPoint WTTransformPointToQuadCurve(CGPoint pt, WTCurveCoefficients coeffs, CGFloat *arcLengths, int numSamples)
 {
-    WarpContext *ctx = (WarpContext *)info;
+    CGFloat textX = pt.x;
+    CGFloat textY = pt.y;
+    
+    // Normalize the x coord into value between 0 and 1.
+    CGFloat u = textX / arcLengths[numSamples - 1];
+    CGFloat t = TForU(u, arcLengths, numSamples);
+    
+    // Calculate the spline point at t
+    CGPoint s = WTEvalQuadCurve(coeffs, t);
+    
+    // Calculate the tangent vector at (s.x, s.y)
+    CGFloat tx = 2 * coeffs.A * t + coeffs.B;
+    CGFloat ty = 2 * coeffs.E * t + coeffs.F;
+    
+    // Find the perpendicular vector
+    CGFloat px = ty;
+    CGFloat py = -tx;
+    
+    // Normalize the perpendicular vector
+    CGFloat magnitude = sqrt(px * px + py * py);
+    px = px / magnitude;
+    py = py / magnitude;
+    
+    // Multiply the perpendicular vector by height in text space.
+    px *= textY;
+    py *= textY;
+    
+    return CGPointMake(px + s.x, py + s.y);
+}
+
+
+void _warpPathToCurveApplierFunc(void *info, const CGPathElement *element)
+{
+    WTContext *ctx = (WTContext *)info;
     
     CGPoint p1, p2, p3;
     
     switch (element->type) {
         case kCGPathElementMoveToPoint:
-            p1 = warpPoint(element->points[0], ctx->coeffs, ctx->arcLengths);
+            p1 = WTTransformPointToCurve(element->points[0], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
             CGPathMoveToPoint(ctx->warpedPath, NULL, p1.x, p1.y);
             break;
         case kCGPathElementAddLineToPoint:
-            p1 = warpPoint(element->points[0], ctx->coeffs, ctx->arcLengths);
+            p1 = WTTransformPointToCurve(element->points[0], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
             CGPathAddLineToPoint(ctx->warpedPath, NULL, p1.x, p1.y);
             break;
         case kCGPathElementAddQuadCurveToPoint:
-            p1 = warpPoint(element->points[0], ctx->coeffs, ctx->arcLengths);
-            p2 = warpPoint(element->points[1], ctx->coeffs, ctx->arcLengths);
+            p1 = WTTransformPointToCurve(element->points[0], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
+            p2 = WTTransformPointToCurve(element->points[1], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
             CGPathAddQuadCurveToPoint(ctx->warpedPath, NULL, p1.x, p1.y, p2.x, p2.y);
             break;
         case kCGPathElementAddCurveToPoint:
-            p1 = warpPoint(element->points[0], ctx->coeffs, ctx->arcLengths);
-            p2 = warpPoint(element->points[1], ctx->coeffs, ctx->arcLengths);
-            p3 = warpPoint(element->points[2], ctx->coeffs, ctx->arcLengths);
+            p1 = WTTransformPointToCurve(element->points[0], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
+            p2 = WTTransformPointToCurve(element->points[1], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
+            p3 = WTTransformPointToCurve(element->points[2], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
+            CGPathAddCurveToPoint(ctx->warpedPath, NULL, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+            break;
+        case kCGPathElementCloseSubpath:
+            CGPathCloseSubpath(ctx->warpedPath);
+            break;
+        default:
+            break;
+    }
+}
+
+void _warpPathToQuadCurveApplierFunc(void *info, const CGPathElement *element)
+{
+    WTContext *ctx = (WTContext *)info;
+    
+    CGPoint p1, p2, p3;
+    
+    switch (element->type) {
+        case kCGPathElementMoveToPoint:
+            p1 = WTTransformPointToQuadCurve(element->points[0], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
+            CGPathMoveToPoint(ctx->warpedPath, NULL, p1.x, p1.y);
+            break;
+        case kCGPathElementAddLineToPoint:
+            p1 = WTTransformPointToQuadCurve(element->points[0], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
+            CGPathAddLineToPoint(ctx->warpedPath, NULL, p1.x, p1.y);
+            break;
+        case kCGPathElementAddQuadCurveToPoint:
+            p1 = WTTransformPointToQuadCurve(element->points[0], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
+            p2 = WTTransformPointToQuadCurve(element->points[1], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
+            CGPathAddQuadCurveToPoint(ctx->warpedPath, NULL, p1.x, p1.y, p2.x, p2.y);
+            break;
+        case kCGPathElementAddCurveToPoint:
+            p1 = WTTransformPointToQuadCurve(element->points[0], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
+            p2 = WTTransformPointToQuadCurve(element->points[1], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
+            p3 = WTTransformPointToQuadCurve(element->points[2], ctx->coeffs, ctx->arcLengths, ctx->numSamples);
             CGPathAddCurveToPoint(ctx->warpedPath, NULL, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
             break;
         case kCGPathElementCloseSubpath:
@@ -173,7 +267,7 @@ void _warpTextApplierFunc(void *info, const CGPathElement *element)
     CGContextRef context = UIGraphicsGetCurrentContext();
 	
     // Get an attributed string to draw.
-    CTFontRef fontRef = CTFontCreateWithName((CFStringRef)@"Futura", 16.0f, NULL);
+    CTFontRef fontRef = CTFontCreateWithName((CFStringRef)@"Futura", 8.0f, NULL);
     NSAttributedString *attString = [self attributedStringForNSString:@"The quick brown fox jumps over the dog." withFont:fontRef];
     
     // Get a path to draw along.
@@ -183,7 +277,7 @@ void _warpTextApplierFunc(void *info, const CGPathElement *element)
     
     // Get a path representing the text
     CGPathRef letters = [self pathForAttributedString:attString];
-    CurveCoefficients coeffs = getCoefficientsForCurve(0, 0, 250, -100, 50, 100, 320, 0);
+    WTCurveCoefficients coeffs = getCoefficientsForCurve(0, 0, 250, -100, 50, 100, 320, 0);
     
     // Calculate vertical offset to center.
     CGFloat ascent = CTFontGetAscent(fontRef);
@@ -191,24 +285,24 @@ void _warpTextApplierFunc(void *info, const CGPathElement *element)
     CGFloat yOffset =  -(ascent - (ascent + descent) / 2);
     
     // Calculate horizontal offset to center.
-    CGFloat *lengths = arcLengths(coeffs);
+    CGFloat *lengths = WTMeasureCurve(coeffs, 101);
     CGRect textBounds = CGPathGetPathBoundingBox(letters);
-    CGFloat arcWidth = lengths[NUM_SUBDIVISIONS];
+    CGFloat arcWidth = lengths[100];
     CGFloat textWidth = textBounds.size.width;
     CGFloat xOffset = (arcWidth - textWidth) / 2;
-
+    
     // Center text vertically and horizontally.
     CGAffineTransform transform = CGAffineTransformMakeTranslation(xOffset, yOffset);
     letters = CGPathCreateCopyByTransformingPath(letters, &transform);
     
     // Warp the text.
     CGMutablePathRef warpedLetters = CGPathCreateMutable();
-    WarpContext *ctx = malloc(sizeof(WarpContext));
+    WTContext *ctx = malloc(sizeof(WTContext));
     ctx->coeffs = coeffs;
-    ctx->textBounds = textBounds;
     ctx->arcLengths = lengths;
     ctx->warpedPath = warpedLetters;
-    CGPathApply(letters, (void *)ctx, _warpTextApplierFunc);
+    ctx->numSamples = 101;
+    CGPathApply(letters, (void *)ctx, _warpPathToCurveApplierFunc);
     
     // Drawing.
     CGContextConcatCTM(context, CGAffineTransformMakeTranslation(0, 200));
@@ -217,7 +311,7 @@ void _warpTextApplierFunc(void *info, const CGPathElement *element)
     CGContextBeginPath(context);
     CGContextAddPath(context, path);
     CGContextStrokePath(context);
-
+    
     CGContextBeginPath(context);
     CGContextAddPath(context, warpedLetters);
     CGContextSetRGBStrokeColor(context, 1.0, 1.0, 0.0, 1.0);
@@ -228,6 +322,7 @@ void _warpTextApplierFunc(void *info, const CGPathElement *element)
     CGContextFillPath(context);
     
     free(ctx);
+    free(lengths);
 }
 
 - (NSAttributedString *) attributedStringForNSString:(NSString *)string withFont:(CTFontRef)fontRef
@@ -288,17 +383,18 @@ void _warpTextApplierFunc(void *info, const CGPathElement *element)
         }
     }
     
-    CFRelease(line);    
+    CFRelease(line);
     return letters;
 }
 
-CurveCoefficients getCoefficientsForCurve(CGFloat x0, CGFloat y0,
-                                         CGFloat x1, CGFloat y1,
-                                         CGFloat x2, CGFloat y2,
-                                         CGFloat x3, CGFloat y3)
+WTCurveCoefficients getCoefficientsForCurve(CGFloat x0, CGFloat y0,
+                                          CGFloat x1, CGFloat y1,
+                                          CGFloat x2, CGFloat y2,
+                                          CGFloat x3, CGFloat y3)
 {
-    // Calculate coefficients
-    CurveCoefficients coeffs;
+    // Calculate coefficients.
+    WTCurveCoefficients coeffs;
+    coeffs.curveType = WTCurveTypeCubic;
     coeffs.A = x3 - 3 * x2 + 3 * x1 - x0;
     coeffs.B = 3 * x2 - 6 * x1 + 3 * x0;
     coeffs.C = 3 * x1 - 3 * x0;
@@ -307,6 +403,22 @@ CurveCoefficients getCoefficientsForCurve(CGFloat x0, CGFloat y0,
     coeffs.F = 3 * y2 - 6 * y1 + 3 * y0;
     coeffs.G = 3 * y1 - 3 * y0;
     coeffs.H = y0;
+    return coeffs;
+}
+
+WTCurveCoefficients getCoefficientsForQuadCurve(CGFloat x0, CGFloat y0,
+                                                  CGFloat x1, CGFloat y1,
+                                                  CGFloat x2, CGFloat y2)
+{
+    // Calculate coefficients.
+    WTCurveCoefficients coeffs;
+    coeffs.curveType = WTCurveTypeCubic;
+    coeffs.A = x2 - 2 * x1 + x0;
+    coeffs.B = 2 * x1 - 2 * x0;
+    coeffs.C = x0;
+    coeffs.D = y2 - 2 * y1 + y0;
+    coeffs.E = 2 * y1 - 2 * y0;
+    coeffs.F = y0;
     return coeffs;
 }
 

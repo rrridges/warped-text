@@ -96,7 +96,6 @@ CGFloat* WTMeasureCurve(WTCurveCoefficients coeffs, int numSamples)
         sum += dist;
         lengths[i] = sum;
         prevPoint = points[i];
-        NSLog(@"sum: %g", sum);
     }
     
     free(points);
@@ -132,9 +131,6 @@ CGPoint WTTransformPointToCurve(CGPoint pt, WTCurveCoefficients coeffs, CGFloat 
     // Normalize the x coord into value between 0 and 1.
     CGFloat u = textX / arcLengths[numSamples - 1];
     CGFloat t = TForU(u, arcLengths, numSamples);
-    
-    NSLog(@"u: %g", u);
-    NSLog(@"t: %g", t);
     
     // Calculate the spline point at t
     CGPoint s = WTEvalCurve(coeffs, t);

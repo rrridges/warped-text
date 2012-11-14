@@ -44,6 +44,8 @@ typedef struct {
     return self;
 }
 
+void WTDrawPathInContext(CGContextRef context, CGPathRef path);
+
 CGPoint WTEvalCurve(WTCurveCoefficients coeffs, CGFloat t)
 {
     CGFloat x = coeffs.A * t * t * t + coeffs.B * t * t + coeffs.C * t + coeffs.D;
@@ -263,8 +265,8 @@ void _warpPathToQuadCurveApplierFunc(void *info, const CGPathElement *element)
     CGContextRef context = UIGraphicsGetCurrentContext();
 	
     // Get an attributed string to draw.
-    CTFontRef fontRef = CTFontCreateWithName((CFStringRef)@"Futura", 8.0f, NULL);
-    NSAttributedString *attString = [self attributedStringForNSString:@"The quick brown fox jumps over the dog." withFont:fontRef];
+    CTFontRef fontRef = CTFontCreateWithName((CFStringRef)@"Futura", 18.0f, NULL);
+    NSAttributedString *attString = [self attributedStringForNSString:@"The quick brown fox" withFont:fontRef];
     
     // Get a path to draw along.
     CGMutablePathRef path = CGPathCreateMutable();
@@ -289,7 +291,7 @@ void _warpPathToQuadCurveApplierFunc(void *info, const CGPathElement *element)
     
     // Center text vertically and horizontally.
     CGAffineTransform transform = CGAffineTransformMakeTranslation(xOffset, yOffset);
-    letters = CGPathCreateCopyByTransformingPath(letters, &transform);
+    CGPathRef transformedLetters = CGPathCreateCopyByTransformingPath(letters, &transform);
     
     // Warp the text.
     CGMutablePathRef warpedLetters = CGPathCreateMutable();
@@ -298,21 +300,58 @@ void _warpPathToQuadCurveApplierFunc(void *info, const CGPathElement *element)
     ctx->arcLengths = lengths;
     ctx->warpedPath = warpedLetters;
     ctx->numSamples = 101;
-    CGPathApply(letters, (void *)ctx, _warpPathToCurveApplierFunc);
+    CGPathApply(transformedLetters, (void *)ctx, _warpPathToCurveApplierFunc);
     
     // Drawing.
     CGContextConcatCTM(context, CGAffineTransformMakeTranslation(0, 200));
+
+
+//    // DEBUG: Draw original text
+//    CGContextSaveGState(context);
+//    CGContextConcatCTM(context, CGAffineTransformMakeScale(1.0, -1.0));
+//    CGContextBeginPath(context);
+//    CGContextAddPath(context, letters);
+//    CGContextSetRGBFillColor(context, 0.0, 0.0, 0.0, 1.0);
+//    CGContextFillPath(context);
+//    CGContextRestoreGState(context);
     
+//    // DEBUG: Draw the original text paths
+//    WTDrawPathInContext(context, letters);
+    
+    // Draw the path
     CGContextSetRGBStrokeColor(context, 1.0, 0.0, 0.0, 1.0);
     CGContextBeginPath(context);
     CGContextAddPath(context, path);
     CGContextStrokePath(context);
     
+    
+//    // DEBUG: draw the points
+//    CGContextSaveGState(context);
+//    CGContextSetRGBFillColor(context, 0.0, 1.0, 1.0, 1.0);
+//    CGPoint *points = WTSampleCurve(coeffs, 101);
+//    for (int i = 0; i < 101; i++) {
+//        CGContextFillEllipseInRect(context, CGRectMake(points[i].x - 1, points[i].y - 1, 2, 2));
+//    }
+//    CGContextRestoreGState(context);
+    
+//    // DEBUG: draw equal-spaced points
+//    CGContextSaveGState(context);
+//    CGContextSetRGBFillColor(context, 0.0, 1.0, 0.0, 1.0);
+//    for (int i = 0; i < 101; i++) {
+//        CGFloat t = TForU(i / 101.0, lengths, 101);
+//        CGPoint newPoint = WTEvalCurve(coeffs, t);
+//        CGContextFillEllipseInRect(context, CGRectMake(newPoint.x - 1, newPoint.y - 1, 2, 2));
+//    }
+//    CGContextRestoreGState(context);
+    
+    // Stroke the letters
     CGContextBeginPath(context);
     CGContextAddPath(context, warpedLetters);
-    CGContextSetRGBStrokeColor(context, 1.0, 1.0, 0.0, 1.0);
+    CGContextSetRGBStrokeColor(context, 1.0, 0.0, 0.0, 3.0);
     CGContextSetLineWidth(context, 1.0);
     CGContextStrokePath(context);
+
+    // Fill the letters;
     CGContextBeginPath(context);
     CGContextAddPath(context, warpedLetters);
     CGContextFillPath(context);
@@ -416,6 +455,70 @@ WTCurveCoefficients getCoefficientsForQuadCurve(CGFloat x0, CGFloat y0,
     coeffs.E = 2 * y1 - 2 * y0;
     coeffs.F = y0;
     return coeffs;
+}
+
+void _drawPathApplierFunction(void *info, const CGPathElement *element)
+{
+    CGContextRef context = (CGContextRef)info;
+    CGPoint *points = element->points;
+    switch (element->type) {
+        case kCGPathElementMoveToPoint:
+            CGContextMoveToPoint(context, points[0].x, points[0].y);
+            break;
+        case kCGPathElementAddCurveToPoint:
+            CGContextAddCurveToPoint(context, points[0].x, points[0].y, points[1].x, points[1].y, points[2].x, points[2].y);
+            break;
+        case kCGPathElementAddQuadCurveToPoint:
+            CGContextAddQuadCurveToPoint(context, points[0].x, points[0].y, points[1].x, points[1].y);
+            break;
+        case kCGPathElementAddLineToPoint:
+            CGContextAddLineToPoint(context, points[0].x, points[0].y);
+            break;
+        case kCGPathElementCloseSubpath:
+            CGContextStrokePath(context);
+            CGContextBeginPath(context);
+            break;
+        default:
+            break;
+    }
+}
+
+void _drawPathApplierFunction2(void *info, const CGPathElement *element)
+{
+    CGContextRef context = (CGContextRef)info;
+    CGPoint *points = element->points;
+    switch (element->type) {
+        case kCGPathElementMoveToPoint:
+            CGContextFillEllipseInRect(context, CGRectMake(points[0].x - 0.5, points[0].y - 0.5, 1, 1));
+            break;
+        case kCGPathElementAddCurveToPoint:
+            CGContextFillEllipseInRect(context, CGRectMake(points[2].x - 0.5, points[2].y - 0.5, 1, 1));
+            break;
+        case kCGPathElementAddQuadCurveToPoint:
+            CGContextFillEllipseInRect(context, CGRectMake(points[1].x - 0.5, points[1].y - 0.5, 1, 1));
+            break;
+        case kCGPathElementAddLineToPoint:
+            CGContextFillEllipseInRect(context, CGRectMake(points[0].x - 0.5, points[0].y - 0.5, 1, 1));
+            break;
+        case kCGPathElementCloseSubpath:
+            break;
+        default:
+            break;
+    }
+}
+
+void WTDrawPathInContext(CGContextRef context, CGPathRef path)
+{
+    CGContextSaveGState(context);
+    CGContextConcatCTM(context, CGAffineTransformMakeScale(1.0, -1.0));
+    CGContextSetRGBFillColor(context, 0.0, 1.0, 1.0, 1.0);
+    CGContextSetRGBStrokeColor(context, 1.0, 0.0, 0.0, 1.0);
+    CGContextSetLineWidth(context, 0.5);
+    CGContextBeginPath(context);
+    CGPathApply(path, (void *)context, _drawPathApplierFunction);
+    CGContextStrokePath(context);
+    CGPathApply(path, (void *)context, _drawPathApplierFunction2);
+    CGContextRestoreGState(context);
 }
 
 
